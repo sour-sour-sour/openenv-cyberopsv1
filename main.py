@@ -77,7 +77,7 @@ env = CyberEnv()
 
 
 @app.post("/reset")
-def reset(task: str):
+def reset(task: str = "log-analysis"):
     return env.reset(task)
 
 
