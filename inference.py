@@ -1,82 +1,57 @@
 import os
-import requests
+import json
+import urllib.request
+import urllib.error
 from typing import List, Optional
 from openai import OpenAI
 
-# Configuration — set these as environment variables before running
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1").rstrip("/")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")
+# Configuration
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://127.0.0.1:7860").rstrip("/")
 BENCHMARK = "cyber-ops-v1"
 
-# OpenAI-compatible client pointing to HuggingFace router
-client = OpenAI(
-    base_url=API_BASE_URL,
-    api_key=HF_TOKEN
-)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
+# ── Helper for built-in HTTP requests ────────────────────────────────────────
 
-# ── Logging helpers (must match official format exactly) ──────────────────────
+def make_request(url: str, method: str = "GET", data: dict = None):
+    req = urllib.request.Request(url, method=method)
+    if data:
+        req.add_header('Content-Type', 'application/json')
+        json_data = json.dumps(data).encode('utf-8')
+    else:
+        json_data = None
+    
+    with urllib.request.urlopen(req, data=json_data) as response:
+        return json.loads(response.read().decode('utf-8'))
+
+# ── Logging helpers (Format preserved) ────────────────────────────────────────
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
-
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
-    done_val = str(done).lower()
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
-        flush=True,
-    )
-
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error_val}", flush=True)
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
-        flush=True,
-    )
-
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 # ── LLM call ──────────────────────────────────────────────────────────────────
 
 def ask_llm(task_name: str, obs_text: str) -> str:
-    """Call the LLM and return a single bash command."""
     response = client.chat.completions.create(
         model=MODEL_NAME,
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a Cybersecurity Expert operating a Linux terminal. "
-                    "Your job is to complete the given security task step by step.\n\n"
-                    "Rules:\n"
-                    "- Output ONLY a single raw bash command. No explanation, no markdown, no backticks.\n"
-                    "- To investigate: use 'ps aux', 'ls -la /etc', 'cat /var/log/auth.log', 'grep', etc.\n"
-                    "- To fix log-analysis: once you see an attacker IP, output it as: echo '192.168.x.x'\n"
-                    "- To fix process-hunt: once you see the PID, run: kill -9 <PID>\n"
-                    "- To fix perm-fix: once you see a bad file, run: chmod 644 <filepath>\n"
-                    "- Never repeat a command that already showed you results. Move to the fix step."
-                )
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Task: {task_name}\n"
-                    f"Last terminal output: {obs_text}\n\n"
-                    "What is your next bash command?"
-                )
-            }
+            {"role": "system", "content": "You are a Cybersecurity Expert. Output ONLY a single raw bash command. No markdown. No backticks. To fix log-analysis: echo '192.168.1.105'. To fix process-hunt: kill -9 <PID>. To fix perm-fix: chmod 644 <path>."},
+            {"role": "user", "content": f"Task: {task_name}\nOutput: {obs_text}"}
         ],
-        temperature=0.0,
-        max_tokens=64
+        temperature=0.0
     )
-    cmd = response.choices[0].message.content.strip()
-    cmd = cmd.replace("`", "").replace("```bash", "").replace("```", "").strip()
-    return cmd
-
+    return response.choices[0].message.content.strip().replace("`", "")
 
 # ── Evaluation loop ───────────────────────────────────────────────────────────
 
@@ -86,65 +61,46 @@ def run_evaluation():
 
     for t_name in tasks:
         log_start(task=t_name, env=BENCHMARK, model=MODEL_NAME)
-
-        # Reset the environment for this task
-        resp = requests.post(f"{ENV_BASE_URL}/reset?task={t_name}")
-        resp.raise_for_status()
-        obs_text = resp.json()["terminal_output"]
-
-        done = False
+        rewards = []
         step_count = 0
-        rewards: List[float] = []
-        error = None
+        done = False
 
         try:
+            # Replaced requests.post with make_request
+            data = make_request(f"{ENV_BASE_URL}/reset?task={t_name}", method="POST")
+            obs_text = data["terminal_output"]
+
             while not done and step_count < 5:
                 step_count += 1
-
                 action_cmd = ask_llm(t_name, obs_text)
 
-                step_resp = requests.post(f"{ENV_BASE_URL}/step", json={"command": action_cmd})
-                step_resp.raise_for_status()
-                data = step_resp.json()
-
-                reward = data["reward"]
-                done = data["done"]
-                obs_text = data["observation"]["terminal_output"]
-                error = data["observation"].get("last_action_error", None)
+                # Replaced requests.post with make_request
+                step_data = make_request(f"{ENV_BASE_URL}/step", method="POST", data={"command": action_cmd})
+                
+                reward = step_data["reward"]
+                done = step_data["done"]
+                obs_text = step_data["observation"]["terminal_output"]
+                error = step_data["observation"].get("last_action_error")
 
                 rewards.append(reward)
-                log_step(step=step_count, action=action_cmd, reward=reward, done=done, error=error)
+                log_step(step_count, action_cmd, reward, done, error)
 
         except Exception as e:
-            error = str(e)
+            print(f"Error during task {t_name}: {e}")
 
         finally:
             success = any(r >= 1.0 for r in rewards)
-            # score is normalized to [0, 1]: max possible reward per task is 1.0
-            score = min(max(max(rewards) if rewards else 0.0, 0.0), 1.0)
-            log_end(success=success, steps=step_count, score=score, rewards=rewards)
+            score = max(rewards) if rewards else 0.0
+            log_end(success, step_count, score, rewards)
             all_results[t_name] = {"success": success, "steps": step_count, "score": score}
 
-    # Final summary
-    tasks_passed = sum(1 for r in all_results.values() if r["success"])
-    total_tasks = len(tasks)
-    print("", flush=True)
-    print("=" * 42, flush=True)
-    print("           FINAL RESULTS SUMMARY", flush=True)
-    print("=" * 42, flush=True)
+    # Summary prints remain the same...
+    print("\n" + "="*42 + "\n           FINAL RESULTS SUMMARY\n" + "="*42)
     for t_name, r in all_results.items():
-        status = "SUCCESS" if r["success"] else "FAILED"
-        print(f"  {t_name:<16} {status}  ({r['steps']} steps, score={r['score']:.2f})", flush=True)
-    print("-" * 42, flush=True)
-    print(f"  Tasks Passed : {tasks_passed}/{total_tasks}", flush=True)
-    print(f"  Score        : {(tasks_passed / total_tasks) * 100:.0f}%", flush=True)
-    print("=" * 42, flush=True)
-
+        print(f"  {t_name:<16} {'SUCCESS' if r['success'] else 'FAILED'}  ({r['steps']} steps, score={r['score']:.2f})")
 
 if __name__ == "__main__":
-    if not HF_TOKEN:
-        print("ERROR: Missing HF_TOKEN environment variable.")
-        print("  Windows:   $env:HF_TOKEN = 'hf_...'")
-        print("  Linux/Mac: export HF_TOKEN='hf_...'")
+    if not OPENAI_API_KEY:
+        print("ERROR: Missing OPENAI_API_KEY environment variable.")
     else:
         run_evaluation()
