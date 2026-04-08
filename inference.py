@@ -1,4 +1,4 @@
-]import os
+import os
 import requests
 from typing import List, Optional
 from openai import OpenAI
