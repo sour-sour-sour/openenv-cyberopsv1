@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from pydantic import BaseModel
+from typing import Optional
 
 
 class Action(BaseModel):
@@ -23,7 +24,8 @@ class CyberEnv:
         self.last_reward = 0.0
         self.done = False
 
-    def reset(self, task_name: str):
+    def reset(self, task_name: Optional[str] = "log-analysis"):
+        task_name = task_name or "log-analysis"
         self.current_task = task_name if task_name in self.tasks else "log-analysis"
         self.steps = 0
         self.last_reward = 0.0
@@ -77,7 +79,7 @@ env = CyberEnv()
 
 
 @app.post("/reset")
-def reset(task: str = "log-analysis"):
+def reset(task: str = Query(default="log-analysis")):
     return env.reset(task)
 
 
