@@ -15,13 +15,13 @@ TASKS = {
 
 def get_reward(task_name, action_cmd):
     task = TASKS[task_name]
-    # Incremental reward for using correct tools
+    #tiny reward
     if "ls" in action_cmd or "grep" in action_cmd:
         return 0.20
-    # Full reward for the solution
+    #final reward
     if task.solution_keyword in action_cmd:
         return 1.00
-    # Penalty for destructive or useless actions
+    #mistake
     if "rm -rf" in action_cmd:
         return -0.50
     return 0.00
