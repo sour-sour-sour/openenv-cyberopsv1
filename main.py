@@ -45,32 +45,32 @@ class CyberEnv:
     def step(self, action: Action):
         self.steps += 1
         cmd = action.command.lower()
-        reward = 0.00
+        reward = 0.01
         output = "Command executed. No findings. Use 'ls', 'ps aux', or 'cat' to investigate."
 
         # --- TASK 1: LOG ANALYSIS ---
         if self.current_task == "log-analysis":
             if "192.168.1.105" in cmd:
-                output, reward = "Success: Attacker IP 192.168.1.105 identified.", 1.00
+                output, reward = "Success: Attacker IP 192.168.1.105 identified.", 0.99
             elif any(v in cmd for v in ["cat", "grep", "ls", "auth"]):
                 output, reward = "Log Entry: Failed password for root from 192.168.1.105", 0.50
 
         # --- TASK 2: PROCESS HUNT ---
         elif self.current_task == "process-hunt":
             if "kill" in cmd:
-                output, reward = "Success: Malicious process 999 terminated.", 1.00
+                output, reward = "Success: Malicious process 999 terminated.", 0.99
             elif any(v in cmd for v in ["ps", "top", "pgrep", "aux"]):
                 output, reward = "CRITICAL: Found process './hidden_miner' with PID: 999", 0.50
 
         # --- TASK 3: PERMISSION FIX ---
         elif self.current_task == "perm-fix":
             if "chmod" in cmd or "644" in cmd:
-                output, reward = "Success: Permissions for /etc/shadow set to 644.", 1.00
+                output, reward = "Success: Permissions for /etc/shadow set to 644.", 0.99
             elif any(v in cmd for v in ["ls", "stat", "check", "find"]):
                 output, reward = "VULNERABILITY: /etc/shadow has permissions 777", 0.50
 
         self.last_reward = reward
-        self.done = reward >= 1.0 or self.steps >= self.max_steps
+        self.done = reward >= 0.99 or self.steps >= self.max_steps
         return Observation(terminal_output=output), reward, self.done
 
 
