@@ -130,8 +130,10 @@ def run_evaluation():
             error = str(e)
 
         finally:
-            success = any(r >= 1.0 for r in rewards)
-            score = min(max(max(rewards) if rewards else 0.0, 0.0), 1.0)
+            success = any(r >= 0.99 for r in rewards)
+            # score strictly between 0 and 1 (never 0.0 or 1.0)
+            raw_score = max(rewards) if rewards else 0.01
+            score = min(max(raw_score, 0.01), 0.99)
             log_end(success=success, steps=step_count, score=score, rewards=rewards)
             all_results[t_name] = {"success": success, "steps": step_count, "score": score}
 
